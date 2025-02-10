@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyberpunk MFA Authentication</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root {
+            --neon-blue: #00f3ff;
+            --neon-pink: #ff0099;
+            --dark-bg: #0a0a0f;
+        }
+        body {
+            background-color: var(--dark-bg);
+            font-family: 'Share Tech Mono', monospace;
+            min-height: 100vh;
+        }
+        .cyberpunk-border {
+            border: 2px solid var(--neon-blue);
+            box-shadow: 0 0 10px var(--neon-blue);
+        }
+        .cyberpunk-text {
+            color: var(--neon-blue);
+            text-shadow: 0 0 5px var(--neon-blue);
+        }
+        .cyberpunk-btn {
+            background: linear-gradient(45deg, var(--neon-blue), var(--neon-pink));
+            transition: all 0.3s ease;
+        }
+        .cyberpunk-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 15px var(--neon-pink);
+        }
+        .glitch {
+            animation: glitch 1s linear infinite;
+        }
+        @keyframes glitch {
+            2%, 64% { transform: translate(2px,0) skew(0deg); }
+            4%, 60% { transform: translate(-2px,0) skew(0deg); }
+            62% { transform: translate(0,0) skew(5deg); }
+        }
+        .mfa-input:focus {
+            border-color: var(--neon-pink);
+            box-shadow: 0 0 10px var(--neon-pink);
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center p-4">
+    <div id="app" class="w-full max-w-md">
+        <div class="cyberpunk-border rounded-lg p-8 bg-black/80 backdrop-blur-sm">
+            <h1 class="text-3xl font-bold mb-8 text-center cyberpunk-text font-['Orbitron']">SECURE ACCESS</h1>
+            
+            <!-- Step 1: Primary Authentication -->
+            <div v-if="currentStep === 1" class="space-y-4">
+                <div class="relative">
+                    <input type="email" v-model="email" placeholder="ENTER EMAIL" class="w-full bg-transparent cyberpunk-border text-white p-3 rounded focus:outline-none mfa-input">
+                    <i class="bi bi-envelope absolute right-3 top-3 text-blue-400"></i>
+                </div>
+                <div class="relative">
+                    <input type="password" v-model="password" placeholder="ENTER PASSWORD" class="w-full bg-transparent cyberpunk-border text-white p-3 rounded focus:outline-none mfa-input">
+                    <i class="bi bi-key absolute right-3 top-3 text-blue-400"></i>
+                </div>
+                <button @click="validatePrimary" class="w-full cyberpunk-btn text-white font-bold py-3 px-4 rounded">
+                    AUTHENTICATE
+                </button>
+            </div>
+
+            <!-- Step 2: MFA Code -->
+            <div v-if="currentStep === 2" class="space-y-4">
+                <div class="text-center cyberpunk-text mb-4">
+                    <p>VERIFICATION CODE SENT TO</p>
+                    <p class="font-bold">{{ maskEmail(email) }}</p>
+                </div>
+                <div class="flex justify-center space-x-2">
+                    <input v-for="i in 6" :key="i" v-model="mfaCode[i-1]" type="text" maxlength="1" 
+                           class="w-12 h-12 text-center bg-transparent cyberpunk-border text-white rounded mfa-input"
+                           @keyup="handleMFAInput($event, i)">
+                </div>
+                <button @click="validateMFA" class="w-full cyberpunk-btn text-white font-bold py-3 px-4 rounded mt-4">
+                    VERIFY
+                </button>
+            </div>
+
+            <!-- Step 3: Biometric -->
+            <div v-if="currentStep === 3" class="space-y-4 text-center">
+                <div class="cyberpunk-text mb-4">
+                    <i class="bi bi-fingerprint text-6xl glitch"></i>
+                    <p class="mt-4">SCAN BIOMETRIC</p>
+                </div>
+                <button @click="completeBiometric" class="w-full cyberpunk-btn text-white font-bold py-3 px-4 rounded">
+                    AUTHENTICATE BIOMETRIC
+                </button>
+            </div>
+
+            <!-- Success State -->
+            <div v-if="currentStep === 4" class="text-center space-y-4">
+                <i class="bi bi-shield-check text-6xl text-green-400"></i>
+                <p class="cyberpunk-text text-xl">ACCESS GRANTED</p>
+                <div class="cyberpunk-border p-4 rounded">
+                    <p class="text-white">Session ID: {{ sessionId }}</p>
+                    <p class="text-white">Expires in: {{ countdown }}s</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue
+
+        createApp({
+            data() {
+                return {
+                    currentStep: 1,
+                    email: '',
+                    password: '',
+                    mfaCode: ['', '', '', '', '', ''],
+                    sessionId: '',
+                    countdown: 300,
+                    countdownInterval: null
+                }
+            },
+            methods: {
+                validatePrimary() {
+                    if (!this.email || !this.password) {
+                        this.showToast('Please fill in all fields', 'error')
+                        return
+                    }
+                    if (!this.email.includes('@')) {
+                        this.showToast('Invalid email format', 'error')
+                        return
+                    }
+                    this.showToast('Primary authentication successful', 'success')
+                    this.currentStep = 2
+                },
+                handleMFAInput(event, index) {
+                    if (event.key === 'Backspace') {
+                        if (index > 1) {
+                            this.$nextTick(() => {
+                                document.querySelectorAll('.mfa-input')[index-2].focus()
+                            })
+                        }
+                    } else if (event.target.value && index < 6) {
+                        this.$nextTick(() => {
+                            if (document.querySelectorAll('.mfa-input')[index]) {
+                                document.querySelectorAll('.mfa-input')[index].focus()
+                            }
+                        })
+                    }
+                },
+                validateMFA() {
+                    if (this.mfaCode.join('').length !== 6) {
+                        this.showToast('Please enter complete verification code', 'error')
+                        return
+                    }
+                    this.showToast('MFA verification successful', 'success')
+                    this.currentStep = 3
+                },
+                completeBiometric() {
+                    this.showToast('Biometric authentication successful', 'success')
+                    this.sessionId = 'SEC-' + Math.random().toString(36).substr(2, 9).toUpperCase()
+                    this.currentStep = 4
+                    this.startCountdown()
+                    this.launchConfetti()
+                },
+                maskEmail(email) {
+                    const [name, domain] = email.split('@')
+                    return `${name[0]}${'*'.repeat(name.length-2)}${name.slice(-1)}@${domain}`
+                },
+                showToast(message, type) {
+                    const color = type === 'error' ? '#ff0099' : '#00f3ff'
+                    Toastify({
+                        text: message,
+                        duration: 3000,
+                        gravity: "top",
+                        position: "right",
+                        style: {
+                            background: color,
+                        }
+                    }).showToast()
+                },
+                startCountdown() {
+                    this.countdownInterval = setInterval(() => {
+                        if (this.countdown > 0) {
+                            this.countdown--
+                        } else {
+                            clearInterval(this.countdownInterval)
+                            this.currentStep = 1
+                            this.showToast('Session expired', 'error')
+                        }
+                    }, 1000)
+                },
+                launchConfetti() {
+                    confetti({
+                        particleCount: 100,
+                        spread: 70,
+                        origin: { y: 0.6 },
+                        colors: ['#00f3ff', '#ff0099', '#ffffff']
+                    })
+                }
+            }
+        }).mount('#app')
+    </script>
+<script>document.body.addEventListener('wheel', e => { if (!e.ctrlKey) return; e.preventDefault(); return }, { passive: false })</script>
+	</body>
+</html>
